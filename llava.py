@@ -53,12 +53,15 @@ def process_video():
     # After processing the last frame, generate the final summary
     final_summary_prompt = create_final_summary_prompt("\n".join(all_responses))
     final_summary = process_image_and_prompt(None, final_summary_prompt)
+    green_solutions_prompt = create_green_solutions_prompt(final_summary)
+    green_solutions = process_green_solutions(green_solutions_prompt)
     cap.release()
     
     # Return JSON data for each frame and the final summary
     result = {
         'frames': all_responses,
-        'summary': final_summary
+        'summary': final_summary,
+        'green_solutions': green_solutions
     }
     return jsonify(result), 200
 
@@ -89,20 +92,51 @@ def process_image_and_prompt(image_path, prompt):
 
     except Exception as e:
         return f'Error: {str(e)}'
+    
+def process_green_solutions(prompt):
+    try:
+        # Prepare the command to run Ollama with the Llava model
+        command = f'ollama run llava'
+
+        # Create the multi-line prompt
+        multi_line_prompt = f"""
+        {prompt}
+        """
+
+        # Run the command and capture the output
+        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True, text=True)
+        stdout, stderr = process.communicate(input=multi_line_prompt)
+
+        # Check for errors
+        if process.returncode != 0:
+            return f'Error: {stderr}'
+
+        # Return the output from Ollama
+        return stdout.strip()
+
+    except Exception as e:
+        return f'Error: {str(e)}'
 
 
 def create_final_summary_prompt(all_responses):
     # Chain of thought prompt for the final summary
     prompt = (
-        "You are given a sequence of observations about a disaster scene, where structural damage, infrastructure damage, "
-        "accessibility, rescue needs, and other information have been reported frame by frame. Based on these observations, "
-        "generate a comprehensive AI summary of the disaster, including:\n\n"
-        "1. Overall damage severity and critical response level.\n"
-        "2. Types of damage observed and affected infrastructure.\n"
-        "3. Rescue needs observed throughout the video.\n"
-        "4. Accessibility issues and areas of concern.\n"
-        "5. Any other key aspects that require attention.\n\n"
-        f"Here is the information collected from the video:\n{all_responses}\n"
+        """
+        You are provided with a series of real-time observations from a disaster scene, detailing structural damage, 
+        infrastructure impact, accessibility challenges, rescue needs, and other key factors, reported frame by 
+        frame. Using these observations, generate a concise yet comprehensive AI-driven summary that includes:
+        1. Overall severity: Assess the total extent of the disaster and determine the critical response level required.
+        2. Damage types and affected areas: Identify and categorize the types of damage (e.g., structural, environmental)
+        and highlight the affected infrastructure.
+        3. Rescue priorities: Summarize the immediate rescue needs observed, including areas where survivors may be trapped
+        or in critical danger.
+        4. Accessibility and hazards: Highlight any accessibility issues, such as blocked routes or unsafe zones, and
+        areas posing risks to rescue teams.
+        5. Additional concerns: Note any other important factors that could impact rescue operations or require special
+        attention.
+
+        Here is the information collected from the video:{all_responses}
+        """
     )
     return prompt
 
@@ -110,13 +144,23 @@ def create_final_summary_prompt(all_responses):
 def create_chain_of_thought_prompt(image_path, all_responses=None):
     # Create a chain of thought prompt for processing an individual image
     prompt = (
-        "Analyze the image and provide the following details as a JSON object:\n"
-        "1. Damage Severity: ('minor', 'moderate', or 'severe').\n"
-        "2. Critical Response Level: (1 to 5, where 5 is most urgent).\n"
-        "3. Damage Type: ('structural', 'fire-related', 'flood-related', or 'other').\n"
-        "4. Infrastructure Affected: (list of 'roads', 'bridges', 'buildings', or 'none').\n"
-        "5. Rescue Needed: ('yes' or 'no').\n"
-        "6. Accessibility: ('accessible' or 'blocked').\n"
+        """
+        Analyze the image and provide the following details as a JSON object (only choose one category for each):
+        1. Damage Severity: ('minor', 'moderate', 'severe', or 'catastrophic').
+        2. Critical Response Level: (1 to 5, where 5 is the most urgent, based on the severity of damage and
+        immediate danger to lives).
+        3. Damage Type: ('structural', 'fire-related', 'flood-related', 'landslide', 'wind damage',
+        'explosion-related', or 'other'). Can be more specific (e.g., 'collapsed buildings',
+        'burning structures', 'flooded areas', 'damaged roads', etc.) but only choose one category.
+        4. Infrastructure Affected: (most affected infrastructure, e.g., 'roads', 'bridges',
+        'buildings', 'power lines', 'communication towers', 'none').
+        5. Rescue Needed: ('yes' or 'no').
+        6. Accessibility: ('accessible', 'partially blocked', or 'blocked').
+        7. Additional Hazards: (most applicable secondary danger such as 'gas leaks', 'downed power lines',
+        or 'chemical spills', 'none').
+        8. Suggested Equipment: (optional list of most recommended tool/vehicle needed for the scene, e.g., 'cranes',
+        'boats', 'rescue helicopters', 'none').
+        """
         "\nExpected Output:\n"
         "{\n"
         "  \"damage_severity\": \"\",\n"
@@ -125,6 +169,8 @@ def create_chain_of_thought_prompt(image_path, all_responses=None):
         "  \"infrastructure_affected\": [],\n"
         "  \"rescue_needed\": \"\",\n"
         "  \"accessibility\": \"\"\n"
+        "  \"additional_hazards\": \"\"\n"
+        "  \"suggested_equipment\": \"\"\n"
         "}"
     )
 
@@ -132,6 +178,22 @@ def create_chain_of_thought_prompt(image_path, all_responses=None):
     if all_responses:
         prompt += f"\nPrevious responses:\n{all_responses}"
 
+    return prompt
+
+def create_green_solutions_prompt(final_summary):
+    prompt = (
+        f"""
+        Based on the following summary of the disaster, provide a list of green solutions that can be implemented
+        to mitigate the damage and improve the situation: {final_summary}
+        Address the following aspects:
+        1. Immediate damage control: Eco-friendly methods to reduce harm and protect ecosystems.
+        2. Waste management: Sustainable practices for handling debris, waste, and hazardous materials.
+        3. Energy solutions: Renewable energy options to support recovery and reduce dependency on fossil fuels.
+        4. Water management: Strategies to conserve water and ensure clean, accessible water supplies.
+        5. Infrastructure rebuilding: Use of sustainable materials and green technologies in rebuilding efforts.
+        6. Long-term resilience: Solutions that enhance environmental sustainability and disaster preparedness for the future.  
+        """
+    )
     return prompt
 
 
